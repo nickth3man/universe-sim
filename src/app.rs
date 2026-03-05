@@ -2,6 +2,7 @@ use crate::camera::{camera_follow_system, CameraController};
 use crate::physics::kepler::Orbit;
 use crate::physics::system::orbital_physics_system;
 use crate::physics::system::{AppState, BodyState, PhysicsState};
+use crate::physics::sync_physics_to_transforms;
 use crate::render::sphere::{calculate_visual_radius, create_sphere_mesh};
 use crate::render::{BodyMesh, SunLight};
 use crate::ui::controls::ui_controls_system;
@@ -151,9 +152,10 @@ impl Plugin for SolarSystemPlugin {
                 (
                     // Declaration order is the implicit execution order here.
                     // Physics must run before transforms, which must run before camera.
-                    orbital_physics_system,   // 1. Advance time; update body positions (AU)
-                    update_body_transforms,   // 2. Copy AU positions → Bevy Transforms
-                    camera_follow_system,     // 3. Point camera at focused body
+                    orbital_physics_system,      // 1. Advance time; update body positions (AU)
+                    sync_physics_to_transforms,  // 2. NEW: Entity-based transform sync
+                    update_body_transforms,      // 3. OLD: Index-based transform sync (will remove in Phase 3)
+                    camera_follow_system,        // 4. Point camera at focused body
                 ),
             )
             // bevy_egui 0.39: UI systems must live in EguiPrimaryContextPass, which runs
