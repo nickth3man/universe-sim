@@ -7,11 +7,7 @@ use crate::physics::kepler::{orbital_to_cartesian, solve_keplers_equation, Orbit
 
 const SECONDS_PER_DAY: f64 = 86_400.0;
 
-/// NOTE: MIN_SIMULATION_SPEED = 1.0 means the simulation cannot actually be paused
-/// through the speed value alone. The UI pause button sets speed to 0.0, but
-/// orbital_physics_system clamps it back to 1.0 every frame, so "pause" has no effect.
-/// Changing this to 0.0 would allow true pausing.
-const MIN_SIMULATION_SPEED: f64 = 1.0;
+const MIN_SIMULATION_SPEED: f64 = 0.0;
 const MAX_SIMULATION_SPEED: f64 = 1_000.0;
 
 /// Threshold for treating an orbit as circular (skip Kepler solver).
@@ -117,7 +113,6 @@ impl Default for AppState {
 /// - Each frame is independent; pausing and resuming produces no artifacts.
 pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
     // Clamp speed and write it back so the UI slider reflects the enforced range.
-    // BUG: MIN = 1.0 makes it impossible to pause via simulation_speed = 0.0.
     let simulation_speed = state
         .simulation_speed
         .clamp(MIN_SIMULATION_SPEED, MAX_SIMULATION_SPEED);

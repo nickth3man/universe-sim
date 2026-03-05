@@ -30,10 +30,6 @@ pub fn ui_controls_system(
                     .logarithmic(true),
             );
 
-            // NOTE: This pause button is currently non-functional.
-            // It sets simulation_speed = 0.0, but orbital_physics_system clamps
-            // speed to MIN_SIMULATION_SPEED (1.0) every frame, so the simulation
-            // immediately resumes. Fix: lower MIN_SIMULATION_SPEED to 0.0.
             if ui
                 .button(if state.simulation_speed > 0.0 {
                     "⏸ Pause"
