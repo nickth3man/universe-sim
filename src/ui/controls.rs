@@ -1,15 +1,15 @@
 use crate::camera::CameraController;
-use crate::physics::system::AppState;
+use crate::physics::system::PhysicsState;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
 
 /// Bevy system: draws the egui "Solar System Controls" overlay panel.
 ///
 /// This is the only user-facing input mechanism in the application. It mutates
-/// `AppState.simulation_speed` and `CameraController.distance`/`focus_index`.
+/// `PhysicsState.simulation_speed` and `CameraController.distance`/`focus`.
 pub fn ui_controls_system(
     mut contexts: EguiContexts,
-    mut state: ResMut<AppState>,
+    mut state: ResMut<PhysicsState>,
     mut camera: ResMut<CameraController>,
 ) {
     let ctx = match contexts.ctx_mut() {
@@ -23,8 +23,7 @@ pub fn ui_controls_system(
             ui.heading("Simulation");
 
             // Logarithmic slider gives fine control at low speeds and coarse at high.
-            // Range 0.0–1000.0, but orbital_physics_system clamps the actual value to
-            // [1.0, 1000.0], so values below 1.0 are overridden each frame.
+            // Range 0.0–1000.0.
             ui.add(
                 egui::Slider::new(&mut state.simulation_speed, 0.0..=1000.0)
                     .text("Speed")
@@ -60,21 +59,22 @@ pub fn ui_controls_system(
                     .logarithmic(true),
             );
 
-            // Build name list from the current bodies vec so the ComboBox always
-            // reflects whatever bodies are in AppState (even if bodies are added at runtime).
-            let body_names: Vec<&str> = state.bodies.iter().map(|b| b.name.as_str()).collect();
+            // Build entity list from PhysicsState so the ComboBox always
+            // reflects whatever bodies are in the system (even if bodies are added at runtime).
+            let bodies: Vec<_> = state.bodies.values().collect();
 
-            if !body_names.is_empty() {
-                let current_name = body_names
-                    .get(camera.focus_index)
-                    .copied()
+            if !bodies.is_empty() {
+                let current_name = bodies
+                    .iter()
+                    .find(|b| b.entity == camera.focus)
+                    .map(|b| b.name.as_str())
                     .unwrap_or("Unknown");
 
                 egui::ComboBox::from_label("Focus On")
                     .selected_text(current_name)
                     .show_ui(ui, |ui| {
-                        for (i, name) in body_names.iter().enumerate() {
-                            ui.selectable_value(&mut camera.focus_index, i, *name);
+                        for body in &bodies {
+                            ui.selectable_value(&mut camera.focus, body.entity, &body.name);
                         }
                     });
             }
