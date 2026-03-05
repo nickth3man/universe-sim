@@ -1,0 +1,28 @@
+# Rust
+/target/
+**/target/
+
+# Build artifacts
+*.so
+*.dll
+*.dylib
+*.pdb
+*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cargo lock for libraries (keep for apps)
+# Cargo.lock
+
+# Debug
+*.rlib
+*.rmeta
