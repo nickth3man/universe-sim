@@ -1,5 +1,6 @@
 use bevy::math::DVec3;
 use bevy::prelude::{Entity, Res, ResMut, Resource, Time};
+use std::collections::HashMap;
 use std::f64::consts::TAU;
 
 use crate::physics::kepler::{orbital_to_cartesian, solve_keplers_equation, Orbit};
@@ -49,6 +50,30 @@ impl BodyState {
             orbit,
             position: DVec3::ZERO,
             mean_anomaly_rad: 0.0,
+        }
+    }
+}
+
+/// New physics state using entity-based lookups (replaces Vec-based AppState)
+#[derive(Debug, Resource, Clone)]
+pub struct PhysicsState {
+    /// Accumulated simulation time in days since the simulation began.
+    pub elapsed_days: f64,
+
+    /// Time multiplier: 1.0 = real-time, 1000.0 = 1000 days per real second.
+    /// Clamped to [0.0, MAX_SIMULATION_SPEED] each frame (0.0 enables pause).
+    pub simulation_speed: f64,
+
+    /// Map from entity to body state. Enables dynamic add/remove of bodies.
+    pub bodies: HashMap<Entity, BodyState>,
+}
+
+impl Default for PhysicsState {
+    fn default() -> Self {
+        Self {
+            elapsed_days: 0.0,
+            simulation_speed: 1.0,
+            bodies: HashMap::new(),
         }
     }
 }
