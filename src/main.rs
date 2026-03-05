@@ -20,6 +20,10 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
+        // Insert the populated AppState BEFORE adding SolarSystemPlugin.
+        // The plugin calls `init_resource::<AppState>()` internally, which is a no-op
+        // when the resource already exists — preserving the solar-system data we built here.
+        // Reversing this order would overwrite the data with an empty default.
         .insert_resource(init_solar_system())
         .add_plugins(SolarSystemPlugin)
         .run();
