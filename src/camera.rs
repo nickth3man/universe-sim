@@ -4,7 +4,7 @@ use bevy::prelude::*;
 /// Spherical-coordinate orbit camera that follows a selected body.
 ///
 /// The camera hovers at `distance` world units from the focused body,
-/// offset by `pitch` and `yaw` angles. Only `distance` and `focus_index`
+/// offset by `pitch` and `yaw` angles. Only `distance` and `focus`
 /// are exposed via the UI; `pitch` and `yaw` have no input handling and
 /// remain at their defaults for the entire session.
 #[derive(Resource)]
@@ -13,9 +13,9 @@ pub struct CameraController {
     /// Controlled by the Zoom slider in the UI.
     pub distance: f64,
 
-    /// Index into `AppState.bodies` — which body the camera orbits around.
+    /// Entity ID of the body the camera orbits around.
     /// Controlled by the "Focus On" ComboBox in the UI.
-    pub focus_index: usize,
+    pub focus: Entity,
 
     /// Elevation angle from the XZ plane in radians. Fixed at π/6 (30°).
     /// No input system writes to this field, so it never changes at runtime.
@@ -30,7 +30,7 @@ impl Default for CameraController {
     fn default() -> Self {
         Self {
             distance: 10.0,
-            focus_index: 0,                        // Default: focus on the Sun (index 0)
+            focus: Entity::PLACEHOLDER,  // Will set to Sun entity at runtime
             pitch: std::f64::consts::FRAC_PI_6,    // 30° elevation
             yaw: 0.0,
         }
