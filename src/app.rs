@@ -11,6 +11,10 @@ use bevy::prelude::*;
 // This schedule runs after begin_pass_system has initialized the egui context and fonts.
 use bevy_egui::EguiPrimaryContextPass;
 
+/// Resource to track the Sun entity for camera initialization
+#[derive(Resource)]
+struct SunEntity(Entity);
+
 /// Spawns 9 sphere entities (1 Sun + 8 planets) in the same order as `init_solar_system`.
 ///
 /// IMPORTANT: The spawn order must match the order of `bodies` in `AppState` because
@@ -116,6 +120,10 @@ fn setup(
 ) {
     let entities = spawn_celestial_bodies(&mut commands, &mut meshes, &mut materials);
 
+    // Sun is always at index 0
+    let sun_entity = entities[0];
+    commands.insert_resource(SunEntity(sun_entity));
+
     let (app_state, physics_state) = init_solar_system(entities);
     commands.insert_resource(app_state);
     commands.insert_resource(physics_state);
@@ -146,7 +154,10 @@ impl Plugin for SolarSystemPlugin {
         app.init_resource::<AppState>()
             .init_resource::<PhysicsState>()
             .init_resource::<CameraController>()
-            .add_systems(Startup, setup)
+            .add_systems(Startup, (
+                setup,
+                initialize_camera_focus,
+            ))
             .add_systems(
                 Update,
                 (
@@ -163,6 +174,19 @@ impl Plugin for SolarSystemPlugin {
             // Running in Update would panic with "No fonts available" on the first frame.
             .add_systems(EguiPrimaryContextPass, ui_controls_system);
     }
+}
+
+/// Initializes CameraController to focus on the Sun after SunEntity resource is available
+fn initialize_camera_focus(
+    mut commands: Commands,
+    sun: Res<SunEntity>,
+) {
+    commands.insert_resource(CameraController {
+        distance: 10.0,
+        focus: sun.0,
+        pitch: std::f64::consts::FRAC_PI_6,  // 30° elevation
+        yaw: 0.0,
+    });
 }
 
 /// Constructs the initial AppState and PhysicsState with real orbital elements for all 8 planets.
