@@ -1,4 +1,3 @@
-use crate::physics::system::AppState;
 use bevy::prelude::*;
 
 /// Spherical-coordinate orbit camera that follows a selected body.
@@ -39,37 +38,35 @@ impl Default for CameraController {
 
 /// Bevy system: positions the camera in a spherical orbit around the focused body.
 ///
-/// World-space conversion: body positions from AppState are in AU;
-/// multiply by 10.0 to get world units (same factor used in update_body_transforms).
+/// Now uses entity-based lookups instead of index-based AppState access.
 pub fn camera_follow_system(
-    state: Res<AppState>,
     camera_controller: Res<CameraController>,
+    body_query: Query<&Transform, With<super::render::BodyMesh>>,
     mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
     if let Ok(mut camera_transform) = camera_query.single_mut() {
-        if let Some(focus_body) = state.bodies.get(camera_controller.focus_index) {
-            // Convert focus body position from AU to world units.
-            let focus_pos = Vec3::new(
-                focus_body.position.x as f32 * 10.0,
-                focus_body.position.y as f32 * 10.0,
-                focus_body.position.z as f32 * 10.0,
-            );
+        // Get the focused body's transform using entity lookup
+        let target_transform = match body_query.get(camera_controller.focus) {
+            Ok(t) => t,
+            Err(_) => return,  // Focused entity not found, skip
+        };
 
-            // Scale camera distance to world units; match the 10× AU conversion.
-            let distance = camera_controller.distance as f32 * 10.0;
-            let pitch = camera_controller.pitch as f32;
-            let yaw = camera_controller.yaw as f32;
+        let focus_pos = target_transform.translation;
 
-            // Spherical → Cartesian offset from the focus body:
-            //   x = d·cos(pitch)·cos(yaw)
-            //   y = d·sin(pitch)          ← vertical component (Y-up)
-            //   z = d·cos(pitch)·sin(yaw)
-            let x = distance * pitch.cos() * yaw.cos();
-            let y = distance * pitch.sin();
-            let z = distance * pitch.cos() * yaw.sin();
+        // Scale camera distance to world units; match the 10× AU conversion.
+        let distance = camera_controller.distance as f32 * 10.0;
+        let pitch = camera_controller.pitch as f32;
+        let yaw = camera_controller.yaw as f32;
 
-            camera_transform.translation = focus_pos + Vec3::new(x, y, z);
-            camera_transform.look_at(focus_pos, Vec3::Y);
-        }
+        // Spherical → Cartesian offset from the focus body:
+        //   x = d·cos(pitch)·cos(yaw)
+        //   y = d·sin(pitch)          ← vertical component (Y-up)
+        //   z = d·cos(pitch)·sin(yaw)
+        let x = distance * pitch.cos() * yaw.cos();
+        let y = distance * pitch.sin();
+        let z = distance * pitch.cos() * yaw.sin();
+
+        camera_transform.translation = focus_pos + Vec3::new(x, y, z);
+        camera_transform.look_at(focus_pos, Vec3::Y);
     }
 }
