@@ -115,8 +115,9 @@ fn setup(
 ) {
     let entities = spawn_celestial_bodies(&mut commands, &mut meshes, &mut materials);
 
-    let bodies = init_solar_system(entities);
-    commands.insert_resource(bodies);
+    let (app_state, physics_state) = init_solar_system(entities);
+    commands.insert_resource(app_state);
+    commands.insert_resource(physics_state);
 
     // Single directional light simulating sunlight from roughly the Sun's direction.
     // NOTE: The light origin is at (10, 10, 10) — not at the Sun entity's position —
@@ -162,13 +163,15 @@ impl Plugin for SolarSystemPlugin {
     }
 }
 
-/// Constructs the initial AppState with real orbital elements for all 8 planets.
+/// Constructs the initial AppState and PhysicsState with real orbital elements for all 8 planets.
 ///
 /// All angular elements are in radians; distances in AU; periods in days.
 /// Source: NASA planetary fact sheets / JPL Horizons epoch J2000.0.
 ///
 /// Parameters: entities - Vec of 9 entity IDs in spawn order (Sun first, then 8 planets)
-pub fn init_solar_system(entities: Vec<Entity>) -> AppState {
+///
+/// Returns: (AppState, PhysicsState) tuple with populated body data
+pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     // Index 0 — the Sun stays fixed at the origin (no orbit).
     let mut bodies = vec![BodyState::new(entities[0], "Sun", None)];
 
@@ -292,9 +295,19 @@ pub fn init_solar_system(entities: Vec<Entity>) -> AppState {
         }),
     ));
 
-    AppState {
+    // Populate both AppState (old) and PhysicsState (new)
+    // (AppState will be removed in Phase 3)
+    let app_state = AppState {
         elapsed_days: 0.0,
         simulation_speed: 1.0,
-        bodies,
+        bodies: bodies.clone(),
+    };
+
+    // Populate new PhysicsState with entity-based lookups
+    let mut physics_state = PhysicsState::default();
+    for body in bodies {
+        physics_state.bodies.insert(body.entity, body);
     }
+
+    (app_state, physics_state)
 }
