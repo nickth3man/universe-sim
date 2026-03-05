@@ -1,7 +1,7 @@
 use crate::camera::{camera_follow_system, CameraController};
 use crate::physics::kepler::Orbit;
 use crate::physics::system::orbital_physics_system;
-use crate::physics::system::{AppState, BodyState};
+use crate::physics::system::{AppState, BodyState, PhysicsState};
 use crate::render::sphere::{calculate_visual_radius, create_sphere_mesh};
 use crate::render::{BodyMesh, SunLight};
 use crate::ui::controls::ui_controls_system;
@@ -139,7 +139,10 @@ pub struct SolarSystemPlugin;
 
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
+        // Initialize both AppState (old) and PhysicsState (new)
+        // (AppState will be removed in Phase 3)
         app.init_resource::<AppState>()
+            .init_resource::<PhysicsState>()
             .init_resource::<CameraController>()
             .add_systems(Startup, setup)
             .add_systems(
