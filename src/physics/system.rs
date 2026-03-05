@@ -1,5 +1,5 @@
 use bevy::math::DVec3;
-use bevy::prelude::{Res, ResMut, Resource, Time};
+use bevy::prelude::{Entity, Res, ResMut, Resource, Time};
 use std::f64::consts::TAU;
 
 use crate::physics::kepler::{orbital_to_cartesian, solve_keplers_equation, Orbit};
@@ -26,6 +26,9 @@ const KEPLER_MAX_ITERATIONS: u32 = 32;
 /// Runtime state of a single celestial body.
 #[derive(Debug, Clone)]
 pub struct BodyState {
+    /// Bevy entity for this body (used for entity-based lookups)
+    pub entity: Entity,
+
     pub name: String,
 
     /// Orbital elements. `None` means the body is fixed at the origin (the Sun).
@@ -39,8 +42,9 @@ pub struct BodyState {
 }
 
 impl BodyState {
-    pub fn new(name: impl Into<String>, orbit: Option<Orbit>) -> Self {
+    pub fn new(entity: Entity, name: impl Into<String>, orbit: Option<Orbit>) -> Self {
         Self {
+            entity,
             name: name.into(),
             orbit,
             position: DVec3::ZERO,
