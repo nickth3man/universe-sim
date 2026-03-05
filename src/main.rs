@@ -7,7 +7,7 @@ mod physics;
 mod render;
 mod ui;
 
-use app::{init_solar_system, SolarSystemPlugin};
+use app::SolarSystemPlugin;
 
 fn main() {
     App::new()
@@ -20,11 +20,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
-        // Insert the populated AppState BEFORE adding SolarSystemPlugin.
-        // The plugin calls `init_resource::<AppState>()` internally, which is a no-op
-        // when the resource already exists — preserving the solar-system data we built here.
-        // Reversing this order would overwrite the data with an empty default.
-        .insert_resource(init_solar_system())
+        // The setup system in SolarSystemPlugin now handles spawning and initialization
         .add_plugins(SolarSystemPlugin)
         .run();
 }
