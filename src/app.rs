@@ -155,7 +155,7 @@ impl Plugin for SolarSystemPlugin {
 ///
 /// All angular elements are in radians; distances in AU; periods in days.
 /// Source: NASA planetary fact sheets / JPL Horizons epoch J2000.0.
-pub fn init_solar_system() -> AppState {
+pub fn init_solar_system(mut commands: Commands) -> (Vec<BodyState>, Vec<Entity>) {
     // Index 0 — the Sun stays fixed at the origin (no orbit).
     let mut bodies = vec![BodyState::new("Sun", None)];
 
@@ -271,9 +271,6 @@ pub fn init_solar_system() -> AppState {
         }),
     ));
 
-    AppState {
-        elapsed_days: 0.0,
-        simulation_speed: 1.0,
-        bodies,
-    }
+    // For now, return empty vec for entities - will fill in next task
+    (bodies, vec![])
 }
