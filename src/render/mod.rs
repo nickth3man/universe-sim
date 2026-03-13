@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 pub mod sphere;
+pub mod trail;
 
 /// Marker component attached to every celestial body sphere entity (Sun + 8 planets).
 /// Queried by `update_body_transforms` to sync physics positions → Bevy Transforms.

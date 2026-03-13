@@ -13,10 +13,7 @@ pub fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> Mesh {
     let radius = if radius.is_finite() && radius > 0.0 {
         radius
     } else {
-        warn!(
-            "create_sphere_mesh: invalid radius ({}), using 1.0",
-            radius
-        );
+        warn!("create_sphere_mesh: invalid radius ({}), using 1.0", radius);
         1.0
     };
     let sectors = sectors.max(MIN_UV_RESOLUTION);
@@ -24,42 +21,43 @@ pub fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> Mesh {
     Sphere::new(radius).mesh().uv(sectors, stacks)
 }
 
-/// Maps a real planetary radius in km to a visual radius in world units using a
-/// logarithmic scale, so that planets spanning 3 orders of magnitude in real size
-/// remain distinguishable on screen without tiny planets becoming invisible.
+/// Maps a real planetary radius in km to a visual radius in world units using
+/// full-range logarithmic scaling. All bodies from Moon (~1,700 km) to Sun
+/// (~696,000 km) are visible and distinguishable.
 ///
-/// Formula:  visual = clamp(ln(radius_km × BASE_SCALE).max(0) × 0.3 + MIN, 0, MAX)
+/// Formula: t = (ln(radius_km) - ln(R_MIN)) / (ln(R_MAX) - ln(R_MIN))  clamped to [0,1]
+///          visual = VISUAL_MIN + t * (VISUAL_MAX - VISUAL_MIN)
 ///
 /// Example values:
-///   Earth  (6 371 km) → ln(0.319) ≈ −1.14 → clamped to 0 → 0.05 (minimum)
-///   Jupiter (69 911 km) → ln(3.50) ≈  1.25 → 1.25×0.3+0.05 ≈ 0.43
-///   Sun  (695 700 km) → ln(34.8)  ≈  3.55 → 3.55×0.3+0.05 ≈ 1.12
-pub fn calculate_visual_radius(radius_km: f64) -> f32 {
-    const MIN_VISUAL_RADIUS: f64 = 0.05;
-    const MAX_VISUAL_RADIUS: f64 = 3.0;
-    /// Scaling factor that maps typical planetary radii into the ln() domain near 0–4.
-    const BASE_SCALE: f64 = 0.00005;
+///   Moon   (1,737 km) → t≈0.00 → 0.08
+///   Earth  (6,378 km) → t≈0.16 → 0.39
+///   Jupiter (71,492 km) → t≈0.67 → 1.35
+///   Sun   (695,700 km) → t≈1.00 → 2.0
+pub fn get_visual_radius(radius_km: f64) -> f32 {
+    const R_MIN_KM: f64 = 1_600.0;
+    const R_MAX_KM: f64 = 696_000.0;
+    const VISUAL_MIN: f32 = 0.08;
+    const VISUAL_MAX: f32 = 2.0;
 
-    // Guard against non-finite or non-positive radius (ln(0) and ln(neg) are invalid)
     let radius_km = if radius_km.is_finite() && radius_km > 0.0 {
         radius_km
     } else {
         warn!(
-            "calculate_visual_radius: invalid radius_km ({}), using MIN_VISUAL_RADIUS",
+            "get_visual_radius: invalid radius_km ({}), using VISUAL_MIN",
             radius_km
         );
-        return MIN_VISUAL_RADIUS as f32;
+        return VISUAL_MIN;
     };
 
-    // ln() is negative for radii where radius_km × BASE_SCALE < 1 (i.e. < 20 000 km),
-    // so .max(0.0) clamps those to the minimum visual size.
-    let scaled = (radius_km * BASE_SCALE).ln().max(0.0) * 0.3 + MIN_VISUAL_RADIUS;
-    scaled.min(MAX_VISUAL_RADIUS) as f32
+    let ln_min = R_MIN_KM.ln();
+    let ln_max = R_MAX_KM.ln();
+    let t = ((radius_km.ln() - ln_min) / (ln_max - ln_min)).clamp(0.0, 1.0);
+    VISUAL_MIN + (t as f32) * (VISUAL_MAX - VISUAL_MIN)
 }
 
 /// Variant that enforces a caller-supplied minimum visual radius.
 /// Useful when a body must remain clickable/visible regardless of its real size.
 #[allow(dead_code)]
-pub fn calculate_visual_radius_with_min(radius_km: f64, min_radius: f32) -> f32 {
-    calculate_visual_radius(radius_km).max(min_radius)
+pub fn get_visual_radius_with_min(radius_km: f64, min_radius: f32) -> f32 {
+    get_visual_radius(radius_km).max(min_radius)
 }

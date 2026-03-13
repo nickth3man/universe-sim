@@ -5407,6 +5407,8 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "nalgebra",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

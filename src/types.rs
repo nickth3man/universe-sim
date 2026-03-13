@@ -4,13 +4,13 @@ use nalgebra::Vector3;
 /// 64-bit precision 3D vector for physics calculations
 pub type DVec3 = Vector3<f64>;
 
-/// Convert DVec3 (nalgebra f64) to Bevy's Vec3 (f32)
-pub fn dvec3_to_vec3(dvec: DVec3) -> Vec3 {
+/// Converts DVec3 (nalgebra f64) to Bevy's Vec3 (f32).
+pub fn convert_dvec3_to_vec3(dvec: DVec3) -> Vec3 {
     Vec3::new(dvec.x as f32, dvec.y as f32, dvec.z as f32)
 }
 
-/// Convert Bevy's Vec3 (f32) to DVec3 (nalgebra f64)
-pub fn vec3_to_dvec3(vec: Vec3) -> DVec3 {
+/// Converts Bevy's Vec3 (f32) to DVec3 (nalgebra f64).
+pub fn convert_vec3_to_dvec3(vec: Vec3) -> DVec3 {
     DVec3::new(vec.x as f64, vec.y as f64, vec.z as f64)
 }
 
@@ -31,19 +31,3 @@ pub const AU_METERS: f64 = 1.495978707e11;
 
 /// Days per year
 pub const DAYS_PER_YEAR: f64 = 365.25;
-
-/// Standard colors for celestial bodies
-pub mod colors {
-    use bevy::prelude::Color;
-
-    pub const SUN: Color = Color::srgb(1.0, 0.9, 0.2);
-    pub const MERCURY: Color = Color::srgb(0.6, 0.6, 0.6);
-    pub const VENUS: Color = Color::srgb(0.9, 0.7, 0.3);
-    pub const EARTH: Color = Color::srgb(0.2, 0.5, 0.8);
-    pub const MARS: Color = Color::srgb(0.8, 0.3, 0.1);
-    pub const JUPITER: Color = Color::srgb(0.8, 0.6, 0.4);
-    pub const SATURN: Color = Color::srgb(0.9, 0.8, 0.5);
-    pub const URANUS: Color = Color::srgb(0.4, 0.8, 0.9);
-    pub const NEPTUNE: Color = Color::srgb(0.2, 0.4, 0.9);
-    pub const MOON: Color = Color::srgb(0.8, 0.8, 0.8);
-}

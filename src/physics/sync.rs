@@ -1,28 +1,40 @@
 use crate::physics::system::PhysicsState;
-use crate::render::sphere::calculate_visual_radius;
+use crate::render::sphere::get_visual_radius;
 use crate::render::BodyMesh;
+use bevy::log::warn;
 use bevy::prelude::*;
+use tracing::info_span;
 
 pub fn sync_physics_to_transforms(
     physics: Res<PhysicsState>,
     mut query: Query<(Entity, &mut Transform), With<BodyMesh>>,
 ) {
-    let mut is_first = true;
+    let _span = info_span!("sync_physics_to_transforms").entered();
     for (entity, mut transform) in query.iter_mut() {
         if let Some(body_state) = physics.bodies.get(&entity) {
-            transform.translation = Vec3::new(
-                body_state.position.x as f32 * 10.0,
-                body_state.position.y as f32 * 10.0,
-                body_state.position.z as f32 * 10.0,
-            );
-
-            let visual_scale = if is_first {
-                0.5
+            // Guard against non-finite position (corrupted physics state)
+            let (x, y, z) = if body_state.position.x.is_finite()
+                && body_state.position.y.is_finite()
+                && body_state.position.z.is_finite()
+            {
+                (
+                    body_state.position.x as f32 * 10.0,
+                    body_state.position.y as f32 * 10.0,
+                    body_state.position.z as f32 * 10.0,
+                )
             } else {
-                calculate_visual_radius(6000.0) * 2.0
+                warn!(
+                    "Body '{}' has non-finite position ({:?}), using origin",
+                    body_state.name, body_state.position
+                );
+                (0.0, 0.0, 0.0)
             };
+            transform.translation = Vec3::new(x, y, z);
+
+            // All bodies use full-range logarithmic visual scaling from radius_km.
+            // Sun, planets, and moons are all visible and proportionally sized.
+            let visual_scale = get_visual_radius(body_state.radius_km);
             transform.scale = Vec3::splat(visual_scale);
-            is_first = false;
         }
     }
 }
