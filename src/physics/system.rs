@@ -1,16 +1,14 @@
+use bevy::log::warn;
 use bevy::math::DVec3;
-use bevy::prelude::{Res, ResMut, Resource, Time};
+use bevy::prelude::{Entity, Res, ResMut, Resource, Time};
+use std::collections::HashMap;
 use std::f64::consts::TAU;
 
 use crate::physics::kepler::{orbital_to_cartesian, solve_keplers_equation, Orbit};
 
 const SECONDS_PER_DAY: f64 = 86_400.0;
 
-/// NOTE: MIN_SIMULATION_SPEED = 1.0 means the simulation cannot actually be paused
-/// through the speed value alone. The UI pause button sets speed to 0.0, but
-/// orbital_physics_system clamps it back to 1.0 every frame, so "pause" has no effect.
-/// Changing this to 0.0 would allow true pausing.
-const MIN_SIMULATION_SPEED: f64 = 1.0;
+const MIN_SIMULATION_SPEED: f64 = 0.0;
 const MAX_SIMULATION_SPEED: f64 = 1_000.0;
 
 /// Threshold for treating an orbit as circular (skip Kepler solver).
@@ -26,6 +24,9 @@ const KEPLER_MAX_ITERATIONS: u32 = 32;
 /// Runtime state of a single celestial body.
 #[derive(Debug, Clone)]
 pub struct BodyState {
+    /// Bevy entity for this body (used for entity-based lookups)
+    pub entity: Entity,
+
     pub name: String,
 
     /// Orbital elements. `None` means the body is fixed at the origin (the Sun).
@@ -39,12 +40,37 @@ pub struct BodyState {
 }
 
 impl BodyState {
-    pub fn new(name: impl Into<String>, orbit: Option<Orbit>) -> Self {
+    pub fn new(entity: Entity, name: impl Into<String>, orbit: Option<Orbit>) -> Self {
         Self {
+            entity,
             name: name.into(),
             orbit,
             position: DVec3::ZERO,
             mean_anomaly_rad: 0.0,
+        }
+    }
+}
+
+/// New physics state using entity-based lookups (replaces Vec-based AppState)
+#[derive(Debug, Resource, Clone)]
+pub struct PhysicsState {
+    /// Accumulated simulation time in days since the simulation began.
+    pub elapsed_days: f64,
+
+    /// Time multiplier: 1.0 = real-time, 1000.0 = 1000 days per real second.
+    /// Clamped to [0.0, MAX_SIMULATION_SPEED] each frame (0.0 enables pause).
+    pub simulation_speed: f64,
+
+    /// Map from entity to body state. Enables dynamic add/remove of bodies.
+    pub bodies: HashMap<Entity, BodyState>,
+}
+
+impl Default for PhysicsState {
+    fn default() -> Self {
+        Self {
+            elapsed_days: 0.0,
+            simulation_speed: 1.0,
+            bodies: HashMap::new(),
         }
     }
 }
@@ -86,26 +112,55 @@ impl Default for AppState {
 /// - No drift accumulates over long simulation times.
 /// - N-body gravitational interactions are NOT modeled.
 /// - Each frame is independent; pausing and resuming produces no artifacts.
-pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
+pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<PhysicsState>) {
     // Clamp speed and write it back so the UI slider reflects the enforced range.
-    // BUG: MIN = 1.0 makes it impossible to pause via simulation_speed = 0.0.
-    let simulation_speed = state
-        .simulation_speed
-        .clamp(MIN_SIMULATION_SPEED, MAX_SIMULATION_SPEED);
+    let simulation_speed = if state.simulation_speed.is_finite() {
+        state
+            .simulation_speed
+            .clamp(MIN_SIMULATION_SPEED, MAX_SIMULATION_SPEED)
+    } else {
+        warn!(
+            "simulation_speed was non-finite ({}), resetting to 1.0",
+            state.simulation_speed
+        );
+        1.0
+    };
     state.simulation_speed = simulation_speed;
 
     // Convert real frame delta to simulation days:
     // Δt_days = (Δt_seconds / 86400) * simulation_speed
-    let delta_days = (time.delta().as_secs_f64() / SECONDS_PER_DAY) * simulation_speed;
+    let delta_secs = time.delta().as_secs_f64();
+    let delta_days = if delta_secs.is_finite() && delta_secs >= 0.0 {
+        (delta_secs / SECONDS_PER_DAY) * simulation_speed
+    } else {
+        warn!(
+            "Invalid frame delta ({} s), skipping time advance",
+            delta_secs
+        );
+        0.0
+    };
     state.elapsed_days += delta_days;
+    if !state.elapsed_days.is_finite() {
+        warn!("elapsed_days became non-finite, resetting to 0");
+        state.elapsed_days = 0.0;
+    }
 
     let simulation_time_days = state.elapsed_days;
 
-    for body in &mut state.bodies {
+    for body in state.bodies.values_mut() {
         // Bodies without an orbit (i.e. the Sun) stay at the origin.
         let Some(orbit) = body.orbit.as_ref() else {
             continue;
         };
+
+        // Guard against invalid orbital period (would cause division by zero or inf)
+        if !orbit.orbital_period_days.is_finite() || orbit.orbital_period_days <= 0.0 {
+            warn!(
+                "Body '{}' has invalid orbital_period_days ({}), skipping position update",
+                body.name, orbit.orbital_period_days
+            );
+            continue;
+        }
 
         // Mean motion:  n = 2π / T  (radians per day)
         // Mean anomaly: M = M₀ + n·(t − t₀)  wrapped to [0, 2π)

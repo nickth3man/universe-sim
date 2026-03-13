@@ -3,6 +3,7 @@
 /// Analytic (not numerical integration) approach: given a time t, each body's
 /// position is computed directly via Kepler's equation rather than by integrating
 /// velocity. This makes the simulation time-step independent and free of drift.
+use bevy::log::warn;
 use bevy::math::DVec3;
 use std::f64::consts::{PI, TAU};
 
@@ -55,6 +56,13 @@ pub struct Orbit {
 /// inlines the same logic). It is kept as a standalone utility.
 #[allow(dead_code)]
 pub fn calculate_orbit_position(orbit: &Orbit, time_days: f64) -> DVec3 {
+    if !orbit.orbital_period_days.is_finite() || orbit.orbital_period_days <= 0.0 {
+        warn!(
+            "Invalid orbital_period_days ({}) in calculate_orbit_position, using 1.0",
+            orbit.orbital_period_days
+        );
+        return DVec3::ZERO;
+    }
     let mean_motion = TAU / orbit.orbital_period_days;
     let elapsed_days = time_days - orbit.epoch_days;
 
@@ -166,6 +174,13 @@ pub fn orbital_to_cartesian(
     argument_of_periapsis: f64,
     true_anomaly: f64,
 ) -> DVec3 {
+    if !semi_major_axis.is_finite() || semi_major_axis < 0.0 {
+        warn!(
+            "Invalid semi_major_axis ({}) in orbital_to_cartesian, using 0.0",
+            semi_major_axis
+        );
+        return DVec3::ZERO;
+    }
     let e = eccentricity.max(0.0);
 
     // Radius for an ellipse as a function of true anomaly:

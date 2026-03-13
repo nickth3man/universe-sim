@@ -3,13 +3,22 @@ use bevy_egui::EguiPlugin;
 
 mod app;
 mod camera;
+mod error;
 mod physics;
 mod render;
 mod ui;
 
-use app::{init_solar_system, SolarSystemPlugin};
+use app::SolarSystemPlugin;
 
 fn main() {
+    // Install panic hook for clearer error messages; keeps default behavior after logging.
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        eprintln!("Solar System Simulator panicked:");
+        eprintln!("{info}");
+        default_panic(info);
+    }));
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -20,11 +29,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin::default())
-        // Insert the populated AppState BEFORE adding SolarSystemPlugin.
-        // The plugin calls `init_resource::<AppState>()` internally, which is a no-op
-        // when the resource already exists — preserving the solar-system data we built here.
-        // Reversing this order would overwrite the data with an empty default.
-        .insert_resource(init_solar_system())
+        // The setup system in SolarSystemPlugin now handles spawning and initialization
         .add_plugins(SolarSystemPlugin)
         .run();
 }

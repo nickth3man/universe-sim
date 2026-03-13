@@ -1,25 +1,35 @@
 use crate::camera::{camera_follow_system, CameraController};
 use crate::physics::kepler::Orbit;
+use crate::physics::sync_physics_to_transforms;
 use crate::physics::system::orbital_physics_system;
-use crate::physics::system::{AppState, BodyState};
+use crate::physics::system::{AppState, BodyState, PhysicsState};
 use crate::render::sphere::{calculate_visual_radius, create_sphere_mesh};
 use crate::render::{BodyMesh, SunLight};
 use crate::ui::controls::ui_controls_system;
+use bevy::log::error;
 use bevy::prelude::*;
 // bevy_egui 0.39 requires UI systems to run in EguiPrimaryContextPass (not Update).
 // This schedule runs after begin_pass_system has initialized the egui context and fonts.
 use bevy_egui::EguiPrimaryContextPass;
+
+/// Resource to track the Sun entity for camera initialization
+#[derive(Resource)]
+struct SunEntity(Entity);
 
 /// Spawns 9 sphere entities (1 Sun + 8 planets) in the same order as `init_solar_system`.
 ///
 /// IMPORTANT: The spawn order must match the order of `bodies` in `AppState` because
 /// `update_body_transforms` maps bodies to entities by parallel index (no name lookup).
 /// If entities and bodies fall out of sync, all planet positions will be corrupted silently.
+///
+/// Returns the spawned entity IDs in order (Sun first, then planets).
 fn spawn_celestial_bodies(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-) {
+) -> Vec<Entity> {
+    let mut entities = Vec::new();
+
     // Sun: higher mesh resolution (32×16) and emissive material so it glows
     // regardless of the scene's directional light position.
     let sun_mesh = create_sphere_mesh(1.0, 32, 16);
@@ -29,12 +39,15 @@ fn spawn_celestial_bodies(
         ..default()
     };
 
-    commands.spawn((
-        Mesh3d(meshes.add(sun_mesh)),
-        MeshMaterial3d(materials.add(sun_material)),
-        Transform::from_scale(Vec3::splat(0.5)),
-        BodyMesh,
-    ));
+    let sun_entity = commands
+        .spawn((
+            Mesh3d(meshes.add(sun_mesh)),
+            MeshMaterial3d(materials.add(sun_material)),
+            Transform::from_scale(Vec3::splat(0.5)),
+            BodyMesh,
+        ))
+        .id();
+    entities.push(sun_entity);
 
     // Planet colors chosen to visually distinguish them at a glance.
     // The tuple name is not stored on the entity — it only drives the color lookup here.
@@ -58,13 +71,18 @@ fn spawn_celestial_bodies(
             ..default()
         };
 
-        commands.spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(material)),
-            Transform::IDENTITY,
-            BodyMesh,
-        ));
+        let entity = commands
+            .spawn((
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(materials.add(material)),
+                Transform::IDENTITY,
+                BodyMesh,
+            ))
+            .id();
+        entities.push(entity);
     }
+
+    entities
 }
 
 /// Bevy system: syncs every BodyMesh entity's Transform from the physics state.
@@ -99,13 +117,32 @@ fn update_body_transforms(state: Res<AppState>, mut query: Query<&mut Transform,
     }
 }
 
+/// Number of celestial bodies expected (1 Sun + 8 planets).
+const EXPECTED_BODY_COUNT: usize = 9;
+
 /// Setup system run once at startup: spawns geometry, lighting, and the camera.
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    spawn_celestial_bodies(&mut commands, &mut meshes, &mut materials);
+    let entities = spawn_celestial_bodies(&mut commands, &mut meshes, &mut materials);
+
+    if entities.len() != EXPECTED_BODY_COUNT {
+        error!(
+            "spawn_celestial_bodies produced {} entities, expected {}. Simulation may be corrupted.",
+            entities.len(),
+            EXPECTED_BODY_COUNT
+        );
+    }
+
+    // Sun is always at index 0; use placeholder if none spawned (degraded but non-panicking)
+    let sun_entity = entities.first().copied().unwrap_or(Entity::PLACEHOLDER);
+    commands.insert_resource(SunEntity(sun_entity));
+
+    let (app_state, physics_state) = init_solar_system(entities);
+    commands.insert_resource(app_state);
+    commands.insert_resource(physics_state);
 
     // Single directional light simulating sunlight from roughly the Sun's direction.
     // NOTE: The light origin is at (10, 10, 10) — not at the Sun entity's position —
@@ -128,20 +165,18 @@ pub struct SolarSystemPlugin;
 
 impl Plugin for SolarSystemPlugin {
     fn build(&self, app: &mut App) {
-        // init_resource is a no-op here because main.rs calls insert_resource(init_solar_system())
-        // before add_plugins(SolarSystemPlugin). Bevy skips init_resource when the resource
-        // already exists, so the populated solar system data is preserved.
+        // Initialize both AppState (old) and PhysicsState (new)
+        // (AppState will be removed in Phase 3)
         app.init_resource::<AppState>()
+            .init_resource::<PhysicsState>()
             .init_resource::<CameraController>()
-            .add_systems(Startup, setup)
+            .add_systems(Startup, (setup, initialize_camera_focus.after(setup)))
             .add_systems(
                 Update,
                 (
-                    // Declaration order is the implicit execution order here.
-                    // Physics must run before transforms, which must run before camera.
-                    orbital_physics_system,   // 1. Advance time; update body positions (AU)
-                    update_body_transforms,   // 2. Copy AU positions → Bevy Transforms
-                    camera_follow_system,     // 3. Point camera at focused body
+                    orbital_physics_system,
+                    sync_physics_to_transforms.after(orbital_physics_system),
+                    camera_follow_system.after(sync_physics_to_transforms),
                 ),
             )
             // bevy_egui 0.39: UI systems must live in EguiPrimaryContextPass, which runs
@@ -151,19 +186,52 @@ impl Plugin for SolarSystemPlugin {
     }
 }
 
-/// Constructs the initial AppState with real orbital elements for all 8 planets.
+/// Initializes CameraController to focus on the Sun after SunEntity resource is available
+fn initialize_camera_focus(mut commands: Commands, sun: Res<SunEntity>) {
+    commands.insert_resource(CameraController {
+        distance: 10.0,
+        focus: sun.0,
+        pitch: std::f64::consts::FRAC_PI_6, // 30° elevation
+        yaw: 0.0,
+    });
+}
+
+/// Constructs the initial AppState and PhysicsState with real orbital elements for all 8 planets.
 ///
 /// All angular elements are in radians; distances in AU; periods in days.
 /// Source: NASA planetary fact sheets / JPL Horizons epoch J2000.0.
-pub fn init_solar_system() -> AppState {
+///
+/// Parameters: entities - Vec of 9 entity IDs in spawn order (Sun first, then 8 planets)
+///
+/// Returns: (AppState, PhysicsState) tuple with populated body data
+///
+/// # Panics
+/// Panics if `entities.len() < 9` (requires 1 Sun + 8 planets). Callers should
+/// ensure the entity count matches before invoking.
+pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
+    if entities.len() < EXPECTED_BODY_COUNT {
+        error!(
+            "init_solar_system: expected at least {} entities, got {}. Filling missing with placeholder.",
+            EXPECTED_BODY_COUNT,
+            entities.len()
+        );
+    }
+
     // Index 0 — the Sun stays fixed at the origin (no orbit).
-    let mut bodies = vec![BodyState::new("Sun", None)];
+    let sun_entity = entities
+        .get(0)
+        .copied()
+        .unwrap_or_else(|| Entity::PLACEHOLDER);
+    let mut bodies = vec![BodyState::new(sun_entity, "Sun", None)];
+
+    let entity_at = |i: usize| entities.get(i).copied().unwrap_or(Entity::PLACEHOLDER);
 
     bodies.push(BodyState::new(
+        entity_at(1),
         "Mercury",
         Some(Orbit {
             semi_major_axis_au: 0.387,
-            eccentricity: 0.2056,       // Highest eccentricity of the 8 planets
+            eccentricity: 0.2056, // Highest eccentricity of the 8 planets
             inclination_rad: 0.1223,
             longitude_ascending_rad: 0.8435,
             argument_of_periapsis_rad: 1.3519,
@@ -174,10 +242,11 @@ pub fn init_solar_system() -> AppState {
     ));
 
     bodies.push(BodyState::new(
+        entity_at(2),
         "Venus",
         Some(Orbit {
             semi_major_axis_au: 0.723,
-            eccentricity: 0.0067,       // Nearly circular
+            eccentricity: 0.0067, // Nearly circular
             inclination_rad: 0.0592,
             longitude_ascending_rad: 1.3382,
             argument_of_periapsis_rad: 2.2957,
@@ -188,11 +257,12 @@ pub fn init_solar_system() -> AppState {
     ));
 
     bodies.push(BodyState::new(
+        entity_at(3),
         "Earth",
         Some(Orbit {
-            semi_major_axis_au: 1.0,    // Defines the AU
+            semi_major_axis_au: 1.0, // Defines the AU
             eccentricity: 0.0167,
-            inclination_rad: 0.0,       // Reference plane — ecliptic
+            inclination_rad: 0.0, // Reference plane — ecliptic
             longitude_ascending_rad: 0.0,
             argument_of_periapsis_rad: 1.7968,
             mean_anomaly_at_epoch_rad: 0.0,
@@ -202,6 +272,7 @@ pub fn init_solar_system() -> AppState {
     ));
 
     bodies.push(BodyState::new(
+        entity_at(4),
         "Mars",
         Some(Orbit {
             semi_major_axis_au: 1.524,
@@ -216,6 +287,7 @@ pub fn init_solar_system() -> AppState {
     ));
 
     bodies.push(BodyState::new(
+        entity_at(5),
         "Jupiter",
         Some(Orbit {
             semi_major_axis_au: 5.204,
@@ -225,11 +297,12 @@ pub fn init_solar_system() -> AppState {
             argument_of_periapsis_rad: 0.2575,
             mean_anomaly_at_epoch_rad: 0.0,
             epoch_days: 0.0,
-            orbital_period_days: 4333.0,  // ~11.9 Earth years
+            orbital_period_days: 4333.0, // ~11.9 Earth years
         }),
     ));
 
     bodies.push(BodyState::new(
+        entity_at(6),
         "Saturn",
         Some(Orbit {
             semi_major_axis_au: 9.582,
@@ -244,6 +317,7 @@ pub fn init_solar_system() -> AppState {
     ));
 
     bodies.push(BodyState::new(
+        entity_at(7),
         "Uranus",
         Some(Orbit {
             semi_major_axis_au: 19.20,
@@ -258,10 +332,11 @@ pub fn init_solar_system() -> AppState {
     ));
 
     bodies.push(BodyState::new(
+        entity_at(8),
         "Neptune",
         Some(Orbit {
             semi_major_axis_au: 30.05,
-            eccentricity: 0.0113,       // Nearly circular — lowest eccentricity
+            eccentricity: 0.0113, // Nearly circular — lowest eccentricity
             inclination_rad: 0.0309,
             longitude_ascending_rad: 2.3001,
             argument_of_periapsis_rad: 0.7840,
@@ -271,9 +346,19 @@ pub fn init_solar_system() -> AppState {
         }),
     ));
 
-    AppState {
+    // Populate both AppState (old) and PhysicsState (new)
+    // (AppState will be removed in Phase 3)
+    let app_state = AppState {
         elapsed_days: 0.0,
         simulation_speed: 1.0,
-        bodies,
+        bodies: bodies.clone(),
+    };
+
+    // Populate new PhysicsState with entity-based lookups
+    let mut physics_state = PhysicsState::default();
+    for body in bodies {
+        physics_state.bodies.insert(body.entity, body);
     }
+
+    (app_state, physics_state)
 }

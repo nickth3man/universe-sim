@@ -1,8 +1,26 @@
+use bevy::log::warn;
 use bevy::prelude::*;
+
+/// Minimum sphere resolution to avoid degenerate meshes.
+const MIN_UV_RESOLUTION: u32 = 4;
 
 /// Creates a UV sphere mesh with the given radius, sector count (longitude slices),
 /// and stack count (latitude slices). Delegates to Bevy's built-in sphere builder.
+///
+/// Validates inputs: uses 1.0 for invalid radius, clamps sector/stack to valid ranges
+/// to avoid degenerate or non-renderable meshes.
 pub fn create_sphere_mesh(radius: f32, sectors: u32, stacks: u32) -> Mesh {
+    let radius = if radius.is_finite() && radius > 0.0 {
+        radius
+    } else {
+        warn!(
+            "create_sphere_mesh: invalid radius ({}), using 1.0",
+            radius
+        );
+        1.0
+    };
+    let sectors = sectors.max(MIN_UV_RESOLUTION);
+    let stacks = stacks.max(MIN_UV_RESOLUTION);
     Sphere::new(radius).mesh().uv(sectors, stacks)
 }
 
@@ -21,6 +39,17 @@ pub fn calculate_visual_radius(radius_km: f64) -> f32 {
     const MAX_VISUAL_RADIUS: f64 = 3.0;
     /// Scaling factor that maps typical planetary radii into the ln() domain near 0–4.
     const BASE_SCALE: f64 = 0.00005;
+
+    // Guard against non-finite or non-positive radius (ln(0) and ln(neg) are invalid)
+    let radius_km = if radius_km.is_finite() && radius_km > 0.0 {
+        radius_km
+    } else {
+        warn!(
+            "calculate_visual_radius: invalid radius_km ({}), using MIN_VISUAL_RADIUS",
+            radius_km
+        );
+        return MIN_VISUAL_RADIUS as f32;
+    };
 
     // ln() is negative for radii where radius_km × BASE_SCALE < 1 (i.e. < 20 000 km),
     // so .max(0.0) clamps those to the minimum visual size.
