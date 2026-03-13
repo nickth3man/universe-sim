@@ -112,7 +112,7 @@ impl Default for AppState {
 /// - No drift accumulates over long simulation times.
 /// - N-body gravitational interactions are NOT modeled.
 /// - Each frame is independent; pausing and resuming produces no artifacts.
-pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
+pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<PhysicsState>) {
     // Clamp speed and write it back so the UI slider reflects the enforced range.
     let simulation_speed = if state.simulation_speed.is_finite() {
         state
@@ -133,7 +133,10 @@ pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
     let delta_days = if delta_secs.is_finite() && delta_secs >= 0.0 {
         (delta_secs / SECONDS_PER_DAY) * simulation_speed
     } else {
-        warn!("Invalid frame delta ({} s), skipping time advance", delta_secs);
+        warn!(
+            "Invalid frame delta ({} s), skipping time advance",
+            delta_secs
+        );
         0.0
     };
     state.elapsed_days += delta_days;
@@ -144,7 +147,7 @@ pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
 
     let simulation_time_days = state.elapsed_days;
 
-    for body in &mut state.bodies {
+    for body in state.bodies.values_mut() {
         // Bodies without an orbit (i.e. the Sun) stay at the origin.
         let Some(orbit) = body.orbit.as_ref() else {
             continue;
@@ -154,8 +157,7 @@ pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
         if !orbit.orbital_period_days.is_finite() || orbit.orbital_period_days <= 0.0 {
             warn!(
                 "Body '{}' has invalid orbital_period_days ({}), skipping position update",
-                body.name,
-                orbit.orbital_period_days
+                body.name, orbit.orbital_period_days
             );
             continue;
         }

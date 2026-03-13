@@ -1,8 +1,8 @@
 use crate::camera::{camera_follow_system, CameraController};
 use crate::physics::kepler::Orbit;
+use crate::physics::sync_physics_to_transforms;
 use crate::physics::system::orbital_physics_system;
 use crate::physics::system::{AppState, BodyState, PhysicsState};
-use crate::physics::sync_physics_to_transforms;
 use crate::render::sphere::{calculate_visual_radius, create_sphere_mesh};
 use crate::render::{BodyMesh, SunLight};
 use crate::ui::controls::ui_controls_system;
@@ -39,12 +39,14 @@ fn spawn_celestial_bodies(
         ..default()
     };
 
-    let sun_entity = commands.spawn((
-        Mesh3d(meshes.add(sun_mesh)),
-        MeshMaterial3d(materials.add(sun_material)),
-        Transform::from_scale(Vec3::splat(0.5)),
-        BodyMesh,
-    )).id();
+    let sun_entity = commands
+        .spawn((
+            Mesh3d(meshes.add(sun_mesh)),
+            MeshMaterial3d(materials.add(sun_material)),
+            Transform::from_scale(Vec3::splat(0.5)),
+            BodyMesh,
+        ))
+        .id();
     entities.push(sun_entity);
 
     // Planet colors chosen to visually distinguish them at a glance.
@@ -69,12 +71,14 @@ fn spawn_celestial_bodies(
             ..default()
         };
 
-        let entity = commands.spawn((
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(material)),
-            Transform::IDENTITY,
-            BodyMesh,
-        )).id();
+        let entity = commands
+            .spawn((
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(materials.add(material)),
+                Transform::IDENTITY,
+                BodyMesh,
+            ))
+            .id();
         entities.push(entity);
     }
 
@@ -166,19 +170,13 @@ impl Plugin for SolarSystemPlugin {
         app.init_resource::<AppState>()
             .init_resource::<PhysicsState>()
             .init_resource::<CameraController>()
-            .add_systems(Startup, (
-                setup,
-                initialize_camera_focus,
-            ))
+            .add_systems(Startup, (setup, initialize_camera_focus.after(setup)))
             .add_systems(
                 Update,
                 (
-                    // Declaration order is the implicit execution order here.
-                    // Physics must run before transforms, which must run before camera.
-                    orbital_physics_system,      // 1. Advance time; update body positions (AU)
-                    sync_physics_to_transforms,  // 2. NEW: Entity-based transform sync
-                    update_body_transforms,      // 3. OLD: Index-based transform sync (will remove in Phase 3)
-                    camera_follow_system,        // 4. Point camera at focused body
+                    orbital_physics_system,
+                    sync_physics_to_transforms.after(orbital_physics_system),
+                    camera_follow_system.after(sync_physics_to_transforms),
                 ),
             )
             // bevy_egui 0.39: UI systems must live in EguiPrimaryContextPass, which runs
@@ -189,14 +187,11 @@ impl Plugin for SolarSystemPlugin {
 }
 
 /// Initializes CameraController to focus on the Sun after SunEntity resource is available
-fn initialize_camera_focus(
-    mut commands: Commands,
-    sun: Res<SunEntity>,
-) {
+fn initialize_camera_focus(mut commands: Commands, sun: Res<SunEntity>) {
     commands.insert_resource(CameraController {
         distance: 10.0,
         focus: sun.0,
-        pitch: std::f64::consts::FRAC_PI_6,  // 30° elevation
+        pitch: std::f64::consts::FRAC_PI_6, // 30° elevation
         yaw: 0.0,
     });
 }
@@ -236,7 +231,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
         "Mercury",
         Some(Orbit {
             semi_major_axis_au: 0.387,
-            eccentricity: 0.2056,       // Highest eccentricity of the 8 planets
+            eccentricity: 0.2056, // Highest eccentricity of the 8 planets
             inclination_rad: 0.1223,
             longitude_ascending_rad: 0.8435,
             argument_of_periapsis_rad: 1.3519,
@@ -251,7 +246,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
         "Venus",
         Some(Orbit {
             semi_major_axis_au: 0.723,
-            eccentricity: 0.0067,       // Nearly circular
+            eccentricity: 0.0067, // Nearly circular
             inclination_rad: 0.0592,
             longitude_ascending_rad: 1.3382,
             argument_of_periapsis_rad: 2.2957,
@@ -265,9 +260,9 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
         entity_at(3),
         "Earth",
         Some(Orbit {
-            semi_major_axis_au: 1.0,    // Defines the AU
+            semi_major_axis_au: 1.0, // Defines the AU
             eccentricity: 0.0167,
-            inclination_rad: 0.0,       // Reference plane — ecliptic
+            inclination_rad: 0.0, // Reference plane — ecliptic
             longitude_ascending_rad: 0.0,
             argument_of_periapsis_rad: 1.7968,
             mean_anomaly_at_epoch_rad: 0.0,
@@ -302,7 +297,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
             argument_of_periapsis_rad: 0.2575,
             mean_anomaly_at_epoch_rad: 0.0,
             epoch_days: 0.0,
-            orbital_period_days: 4333.0,  // ~11.9 Earth years
+            orbital_period_days: 4333.0, // ~11.9 Earth years
         }),
     ));
 
@@ -341,7 +336,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
         "Neptune",
         Some(Orbit {
             semi_major_axis_au: 30.05,
-            eccentricity: 0.0113,       // Nearly circular — lowest eccentricity
+            eccentricity: 0.0113, // Nearly circular — lowest eccentricity
             inclination_rad: 0.0309,
             longitude_ascending_rad: 2.3001,
             argument_of_periapsis_rad: 0.7840,
