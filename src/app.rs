@@ -6,6 +6,7 @@ use crate::physics::sync_physics_to_transforms;
 use crate::render::sphere::{calculate_visual_radius, create_sphere_mesh};
 use crate::render::{BodyMesh, SunLight};
 use crate::ui::controls::ui_controls_system;
+use bevy::log::error;
 use bevy::prelude::*;
 // bevy_egui 0.39 requires UI systems to run in EguiPrimaryContextPass (not Update).
 // This schedule runs after begin_pass_system has initialized the egui context and fonts.
@@ -112,6 +113,9 @@ fn update_body_transforms(state: Res<AppState>, mut query: Query<&mut Transform,
     }
 }
 
+/// Number of celestial bodies expected (1 Sun + 8 planets).
+const EXPECTED_BODY_COUNT: usize = 9;
+
 /// Setup system run once at startup: spawns geometry, lighting, and the camera.
 fn setup(
     mut commands: Commands,
@@ -120,8 +124,16 @@ fn setup(
 ) {
     let entities = spawn_celestial_bodies(&mut commands, &mut meshes, &mut materials);
 
-    // Sun is always at index 0
-    let sun_entity = entities[0];
+    if entities.len() != EXPECTED_BODY_COUNT {
+        error!(
+            "spawn_celestial_bodies produced {} entities, expected {}. Simulation may be corrupted.",
+            entities.len(),
+            EXPECTED_BODY_COUNT
+        );
+    }
+
+    // Sun is always at index 0; use placeholder if none spawned (degraded but non-panicking)
+    let sun_entity = entities.first().copied().unwrap_or(Entity::PLACEHOLDER);
     commands.insert_resource(SunEntity(sun_entity));
 
     let (app_state, physics_state) = init_solar_system(entities);
@@ -197,12 +209,30 @@ fn initialize_camera_focus(
 /// Parameters: entities - Vec of 9 entity IDs in spawn order (Sun first, then 8 planets)
 ///
 /// Returns: (AppState, PhysicsState) tuple with populated body data
+///
+/// # Panics
+/// Panics if `entities.len() < 9` (requires 1 Sun + 8 planets). Callers should
+/// ensure the entity count matches before invoking.
 pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
+    if entities.len() < EXPECTED_BODY_COUNT {
+        error!(
+            "init_solar_system: expected at least {} entities, got {}. Filling missing with placeholder.",
+            EXPECTED_BODY_COUNT,
+            entities.len()
+        );
+    }
+
     // Index 0 — the Sun stays fixed at the origin (no orbit).
-    let mut bodies = vec![BodyState::new(entities[0], "Sun", None)];
+    let sun_entity = entities
+        .get(0)
+        .copied()
+        .unwrap_or_else(|| Entity::PLACEHOLDER);
+    let mut bodies = vec![BodyState::new(sun_entity, "Sun", None)];
+
+    let entity_at = |i: usize| entities.get(i).copied().unwrap_or(Entity::PLACEHOLDER);
 
     bodies.push(BodyState::new(
-        entities[1],
+        entity_at(1),
         "Mercury",
         Some(Orbit {
             semi_major_axis_au: 0.387,
@@ -217,7 +247,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[2],
+        entity_at(2),
         "Venus",
         Some(Orbit {
             semi_major_axis_au: 0.723,
@@ -232,7 +262,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[3],
+        entity_at(3),
         "Earth",
         Some(Orbit {
             semi_major_axis_au: 1.0,    // Defines the AU
@@ -247,7 +277,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[4],
+        entity_at(4),
         "Mars",
         Some(Orbit {
             semi_major_axis_au: 1.524,
@@ -262,7 +292,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[5],
+        entity_at(5),
         "Jupiter",
         Some(Orbit {
             semi_major_axis_au: 5.204,
@@ -277,7 +307,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[6],
+        entity_at(6),
         "Saturn",
         Some(Orbit {
             semi_major_axis_au: 9.582,
@@ -292,7 +322,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[7],
+        entity_at(7),
         "Uranus",
         Some(Orbit {
             semi_major_axis_au: 19.20,
@@ -307,7 +337,7 @@ pub fn init_solar_system(entities: Vec<Entity>) -> (AppState, PhysicsState) {
     ));
 
     bodies.push(BodyState::new(
-        entities[8],
+        entity_at(8),
         "Neptune",
         Some(Orbit {
             semi_major_axis_au: 30.05,

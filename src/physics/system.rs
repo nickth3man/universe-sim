@@ -1,3 +1,4 @@
+use bevy::log::warn;
 use bevy::math::DVec3;
 use bevy::prelude::{Entity, Res, ResMut, Resource, Time};
 use std::collections::HashMap;
@@ -113,15 +114,33 @@ impl Default for AppState {
 /// - Each frame is independent; pausing and resuming produces no artifacts.
 pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
     // Clamp speed and write it back so the UI slider reflects the enforced range.
-    let simulation_speed = state
-        .simulation_speed
-        .clamp(MIN_SIMULATION_SPEED, MAX_SIMULATION_SPEED);
+    let simulation_speed = if state.simulation_speed.is_finite() {
+        state
+            .simulation_speed
+            .clamp(MIN_SIMULATION_SPEED, MAX_SIMULATION_SPEED)
+    } else {
+        warn!(
+            "simulation_speed was non-finite ({}), resetting to 1.0",
+            state.simulation_speed
+        );
+        1.0
+    };
     state.simulation_speed = simulation_speed;
 
     // Convert real frame delta to simulation days:
     // Δt_days = (Δt_seconds / 86400) * simulation_speed
-    let delta_days = (time.delta().as_secs_f64() / SECONDS_PER_DAY) * simulation_speed;
+    let delta_secs = time.delta().as_secs_f64();
+    let delta_days = if delta_secs.is_finite() && delta_secs >= 0.0 {
+        (delta_secs / SECONDS_PER_DAY) * simulation_speed
+    } else {
+        warn!("Invalid frame delta ({} s), skipping time advance", delta_secs);
+        0.0
+    };
     state.elapsed_days += delta_days;
+    if !state.elapsed_days.is_finite() {
+        warn!("elapsed_days became non-finite, resetting to 0");
+        state.elapsed_days = 0.0;
+    }
 
     let simulation_time_days = state.elapsed_days;
 
@@ -130,6 +149,16 @@ pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<AppState>) {
         let Some(orbit) = body.orbit.as_ref() else {
             continue;
         };
+
+        // Guard against invalid orbital period (would cause division by zero or inf)
+        if !orbit.orbital_period_days.is_finite() || orbit.orbital_period_days <= 0.0 {
+            warn!(
+                "Body '{}' has invalid orbital_period_days ({}), skipping position update",
+                body.name,
+                orbit.orbital_period_days
+            );
+            continue;
+        }
 
         // Mean motion:  n = 2π / T  (radians per day)
         // Mean anomaly: M = M₀ + n·(t − t₀)  wrapped to [0, 2π)

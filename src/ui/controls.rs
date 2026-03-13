@@ -12,9 +12,8 @@ pub fn ui_controls_system(
     mut state: ResMut<PhysicsState>,
     mut camera: ResMut<CameraController>,
 ) {
-    let ctx = match contexts.ctx_mut() {
-        Ok(ctx) => ctx,
-        Err(_) => return,
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return; // egui context unavailable this frame
     };
 
     egui::Window::new("Solar System Controls")

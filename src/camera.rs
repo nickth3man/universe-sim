@@ -1,3 +1,4 @@
+use bevy::log::warn;
 use bevy::prelude::*;
 
 /// Spherical-coordinate orbit camera that follows a selected body.
@@ -44,29 +45,39 @@ pub fn camera_follow_system(
     body_query: Query<&Transform, With<super::render::BodyMesh>>,
     mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
-    if let Ok(mut camera_transform) = camera_query.single_mut() {
-        // Get the focused body's transform using entity lookup
-        let target_transform = match body_query.get(camera_controller.focus) {
-            Ok(t) => t,
-            Err(_) => return,  // Focused entity not found, skip
-        };
+    let Ok(mut camera_transform) = camera_query.single_mut() else {
+        return; // No camera or multiple cameras — skip this frame
+    };
 
-        let focus_pos = target_transform.translation;
+    // Get the focused body's transform using entity lookup
+    let Ok(target_transform) = body_query.get(camera_controller.focus) else {
+        return; // Focused entity not found (despawned or invalid), skip
+    };
 
-        // Scale camera distance to world units; match the 10× AU conversion.
-        let distance = camera_controller.distance as f32 * 10.0;
-        let pitch = camera_controller.pitch as f32;
-        let yaw = camera_controller.yaw as f32;
+    let focus_pos = target_transform.translation;
 
-        // Spherical → Cartesian offset from the focus body:
+    // Guard against non-finite distance (e.g. from corrupted state)
+    let distance = if camera_controller.distance.is_finite() && camera_controller.distance > 0.0 {
+        camera_controller.distance as f32 * 10.0
+    } else {
+        warn!(
+            "CameraController distance invalid ({}), using 10.0",
+            camera_controller.distance
+        );
+        100.0
+    };
+
+    let pitch = camera_controller.pitch as f32;
+    let yaw = camera_controller.yaw as f32;
+
+    // Spherical → Cartesian offset from the focus body:
         //   x = d·cos(pitch)·cos(yaw)
         //   y = d·sin(pitch)          ← vertical component (Y-up)
         //   z = d·cos(pitch)·sin(yaw)
-        let x = distance * pitch.cos() * yaw.cos();
-        let y = distance * pitch.sin();
-        let z = distance * pitch.cos() * yaw.sin();
+    let x = distance * pitch.cos() * yaw.cos();
+    let y = distance * pitch.sin();
+    let z = distance * pitch.cos() * yaw.sin();
 
-        camera_transform.translation = focus_pos + Vec3::new(x, y, z);
-        camera_transform.look_at(focus_pos, Vec3::Y);
-    }
+    camera_transform.translation = focus_pos + Vec3::new(x, y, z);
+    camera_transform.look_at(focus_pos, Vec3::Y);
 }
