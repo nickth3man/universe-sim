@@ -1,17 +1,14 @@
 use crate::error::validate_finite_or;
+use crate::physics::kepler::{eccentric_to_true_anomaly, orbital_to_cartesian, solve_kepler_equation, Orbit};
+use crate::types::DAYS_PER_YEAR;
 use bevy::log::warn;
-use tracing::info_span;
 use bevy::math::DVec3;
 use bevy::prelude::{Entity, Res, ResMut, Resource, Time};
 use std::collections::HashMap;
 use std::f64::consts::TAU;
-
-use crate::physics::kepler::{orbital_to_cartesian, solve_kepler_equation, Orbit};
+use tracing::info_span;
 
 const SECONDS_PER_DAY: f64 = 86_400.0;
-
-/// Realtime = 1 sim day per real day (speed 1.0).
-const DAYS_PER_YEAR: f64 = 365.25;
 
 const MIN_SIMULATION_SPEED: f64 = 0.0; // 0 = paused
 const MAX_SIMULATION_SPEED: f64 = DAYS_PER_YEAR * SECONDS_PER_DAY; // ~31.5M = 1 year per real second
@@ -166,10 +163,7 @@ pub fn orbital_physics_system(time: Res<Time>, mut state: ResMut<PhysicsState>) 
                 KEPLER_TOLERANCE,
                 KEPLER_MAX_ITERATIONS,
             );
-            let half_eccentric = 0.5 * eccentric_anomaly;
-            let y = (1.0 + orbit.eccentricity).sqrt() * half_eccentric.sin();
-            let x = (1.0 - orbit.eccentricity).sqrt() * half_eccentric.cos();
-            (2.0 * y.atan2(x)).rem_euclid(TAU)
+            eccentric_to_true_anomaly(eccentric_anomaly, orbit.eccentricity)
         };
 
         let pos = orbital_to_cartesian(

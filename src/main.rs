@@ -8,6 +8,8 @@ mod camera;
 mod error;
 mod physics;
 mod render;
+mod solar_system_data;
+mod types;
 mod ui;
 
 use app::SolarSystemPlugin;

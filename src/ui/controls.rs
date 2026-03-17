@@ -1,6 +1,7 @@
 use crate::camera::CameraController;
 use crate::error::{validate_finite_or, validate_in_range_or};
 use crate::physics::system::PhysicsState;
+use crate::ui::bodies::{ensure_valid_focus, focus_sun_or_first, sorted_bodies};
 use crate::render::trail::{TrailConfig, DEFAULT_TRAIL_LENGTH_DAYS};
 use crate::ui::labels::ShowBodyLabels;
 use bevy::prelude::*;
@@ -103,13 +104,10 @@ pub fn ui_controls_system(
                     .logarithmic(true),
             );
 
-            let bodies: Vec<_> = state.bodies.values().collect();
+            let bodies = sorted_bodies(&state);
 
             if !bodies.is_empty() {
-                let has_valid_focus = bodies.iter().any(|b| b.entity == camera.focus);
-                if !has_valid_focus {
-                    camera.focus = bodies.first().map(|b| b.entity).unwrap_or(camera.focus);
-                }
+                ensure_valid_focus(&bodies, &mut camera);
 
                 let focused_body_name = bodies
                     .iter()
@@ -127,7 +125,9 @@ pub fn ui_controls_system(
 
                 if ui.button("Reset view").clicked() {
                     camera.distance = 10.0;
-                    camera.focus = bodies.first().map(|b| b.entity).unwrap_or(camera.focus);
+                    if let Some(entity) = focus_sun_or_first(&bodies) {
+                        camera.focus = entity;
+                    }
                 }
             }
 

@@ -247,11 +247,7 @@ pub fn orbital_to_cartesian(
 ///
 /// This avoids the singularity in the naive formula tan(ν/2) = √((1+e)/(1-e))·tan(E/2)
 /// which is undefined when E = π (ν = π, apoapsis).
-///
-/// NOTE: Used by get_orbit_position (dead-code path). orbital_physics_system
-/// inlines this conversion directly for efficiency.
-#[allow(dead_code)]
-fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
+pub fn eccentric_to_true_anomaly(eccentric_anomaly: f64, eccentricity: f64) -> f64 {
     let e = eccentricity.clamp(0.0, 0.999_999_999_999);
     let half_e = 0.5 * eccentric_anomaly;
     let sin_half_e = half_e.sin();

@@ -1,6 +1,7 @@
 use crate::physics::system::PhysicsState;
 use crate::render::sphere::get_visual_radius;
 use crate::render::BodyMesh;
+use crate::types::AU_TO_WORLD;
 use bevy::log::warn;
 use bevy::prelude::*;
 use tracing::info_span;
@@ -18,9 +19,9 @@ pub fn sync_physics_to_transforms(
                 && body_state.position.z.is_finite()
             {
                 (
-                    body_state.position.x as f32 * 10.0,
-                    body_state.position.y as f32 * 10.0,
-                    body_state.position.z as f32 * 10.0,
+                    body_state.position.x as f32 * AU_TO_WORLD,
+                    body_state.position.y as f32 * AU_TO_WORLD,
+                    body_state.position.z as f32 * AU_TO_WORLD,
                 )
             } else {
                 warn!(

@@ -17,6 +17,10 @@ pub fn convert_vec3_to_dvec3(vec: Vec3) -> DVec3 {
 /// Scale factor: 1 AU = X simulation units
 pub const AU_TO_UNITS: f64 = 100.0;
 
+/// Scale from AU (physics) to world units for transforms and trails.
+/// Matches the multiplier used in sync_physics_to_transforms.
+pub const AU_TO_WORLD: f32 = 10.0;
+
 /// Scale factor: 1 km = X simulation units
 pub const KM_TO_UNITS: f64 = 0.0001;
 

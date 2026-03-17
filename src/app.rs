@@ -1,9 +1,9 @@
 use crate::camera::{camera_follow_system, mouse_camera_control, CameraController};
 use crate::error::LastError;
-use crate::physics::kepler::Orbit;
 use crate::physics::sync_physics_to_transforms;
 use crate::physics::system::orbital_physics_system;
 use crate::physics::system::{BodyState, PhysicsState};
+use crate::solar_system_data::{PLANET_DATA, MOON_DATA};
 use crate::render::sphere::create_sphere_mesh;
 use crate::render::trail::{render_orbit_trails_system, trail_update_system, TrailConfig, TrailState};
 use crate::render::{BodyMesh, SunLight};
@@ -20,11 +20,28 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 #[derive(Resource)]
 struct SunEntity(Entity);
 
+/// Spawns a single celestial body sphere. Scale is set later by sync from radius_km.
+fn spawn_body(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    mesh: Mesh,
+    material: StandardMaterial,
+) -> Entity {
+    commands
+        .spawn((
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(materials.add(material)),
+            Transform::IDENTITY,
+            BodyMesh,
+        ))
+        .id()
+}
+
 /// Spawns 14 sphere entities (1 Sun + 8 planets + 5 major moons) in the same order as `init_solar_system`.
 ///
 /// IMPORTANT: The spawn order must match the order of bodies in PhysicsState because
-/// `sync_physics_to_transforms` maps bodies to entities by entity ID lookup
-/// (no index-based mapping).
+/// `sync_physics_to_transforms` maps bodies to entities by entity ID lookup.
 ///
 /// Returns the spawned entity IDs in order (Sun first, then planets, then moons).
 fn spawn_celestial_bodies(
@@ -35,83 +52,51 @@ fn spawn_celestial_bodies(
     let mut entities = Vec::new();
 
     // Sun: higher mesh resolution (32×16) and emissive material so it glows
-    // regardless of the scene's directional light position.
     let sun_mesh = create_sphere_mesh(1.0, 32, 16);
     let sun_material = StandardMaterial {
         base_color: Color::srgb(1.0, 0.95, 0.2),
         emissive: LinearRgba::rgb(1.0, 0.9, 0.2),
         ..default()
     };
+    entities.push(spawn_body(commands, meshes, materials, sun_mesh, sun_material));
 
-    let sun_entity = commands
-        .spawn((
-            Mesh3d(meshes.add(sun_mesh)),
-            MeshMaterial3d(materials.add(sun_material)),
-            Transform::IDENTITY, // Scale set by sync from radius_km
-            BodyMesh,
-        ))
-        .id();
-    entities.push(sun_entity);
-
-    // Planet colors chosen to visually distinguish them at a glance.
-    // The tuple name is not stored on the entity — it only drives the color lookup here.
-    let planet_colors = [
-        ("Mercury", Color::srgb(0.7, 0.7, 0.7)),
-        ("Venus", Color::srgb(0.9, 0.7, 0.4)),
-        ("Earth", Color::srgb(0.2, 0.5, 0.9)),
-        ("Mars", Color::srgb(0.9, 0.3, 0.1)),
-        ("Jupiter", Color::srgb(0.8, 0.6, 0.4)),
-        ("Saturn", Color::srgb(0.9, 0.8, 0.5)),
-        ("Uranus", Color::srgb(0.4, 0.8, 0.9)),
-        ("Neptune", Color::srgb(0.2, 0.4, 0.9)),
+    // Planet colors chosen to visually distinguish them at a glance
+    let planet_colors: [Color; 8] = [
+        Color::srgb(0.7, 0.7, 0.7),   // Mercury
+        Color::srgb(0.9, 0.7, 0.4),   // Venus
+        Color::srgb(0.2, 0.5, 0.9),   // Earth
+        Color::srgb(0.9, 0.3, 0.1),   // Mars
+        Color::srgb(0.8, 0.6, 0.4),   // Jupiter
+        Color::srgb(0.9, 0.8, 0.5),   // Saturn
+        Color::srgb(0.4, 0.8, 0.9),   // Uranus
+        Color::srgb(0.2, 0.4, 0.9),   // Neptune
     ];
 
-    for (_, color) in planet_colors.iter() {
-        // Lower mesh resolution (16×8) for planets — they're small on screen
-        // and high sector/stack counts are wasted detail at typical zoom levels.
+    for color in planet_colors {
         let mesh = create_sphere_mesh(1.0, 16, 8);
         let material = StandardMaterial {
-            base_color: *color,
+            base_color: color,
             ..default()
         };
-
-        let entity = commands
-            .spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(materials.add(material)),
-                Transform::IDENTITY,
-                BodyMesh,
-            ))
-            .id();
-        entities.push(entity);
+        entities.push(spawn_body(commands, meshes, materials, mesh, material));
     }
 
-    // Major moons: smaller spheres, distinct colors
-    // Order: Moon (Earth), Io, Europa, Ganymede, Callisto (Jupiter)
-    let moon_colors = [
-        ("Moon", Color::srgb(0.75, 0.75, 0.8)),      // silvery grey
-        ("Io", Color::srgb(0.9, 0.85, 0.5)),        // sulphur yellow
-        ("Europa", Color::srgb(0.9, 0.9, 0.95)),   // ice white
-        ("Ganymede", Color::srgb(0.6, 0.55, 0.5)), // grey-brown
-        ("Callisto", Color::srgb(0.4, 0.35, 0.3)),  // dark grey
+    // Major moons: Moon (Earth), Io, Europa, Ganymede, Callisto (Jupiter)
+    let moon_colors: [Color; 5] = [
+        Color::srgb(0.75, 0.75, 0.8),  // Moon - silvery grey
+        Color::srgb(0.9, 0.85, 0.5),   // Io - sulphur yellow
+        Color::srgb(0.9, 0.9, 0.95),   // Europa - ice white
+        Color::srgb(0.6, 0.55, 0.5),   // Ganymede - grey-brown
+        Color::srgb(0.4, 0.35, 0.3),   // Callisto - dark grey
     ];
 
-    for (_, color) in moon_colors.iter() {
-        let mesh = create_sphere_mesh(1.0, 12, 6); // smaller resolution for moons
+    for color in moon_colors {
+        let mesh = create_sphere_mesh(1.0, 12, 6);
         let material = StandardMaterial {
-            base_color: *color,
+            base_color: color,
             ..default()
         };
-
-        let entity = commands
-            .spawn((
-                Mesh3d(meshes.add(mesh)),
-                MeshMaterial3d(materials.add(material)),
-                Transform::IDENTITY,
-                BodyMesh,
-            ))
-            .id();
-        entities.push(entity);
+        entities.push(spawn_body(commands, meshes, materials, mesh, material));
     }
 
     entities
@@ -232,18 +217,13 @@ fn initialize_camera_focus(mut commands: Commands, sun: Res<SunEntity>) {
     });
 }
 
-/// Constructs the initial PhysicsState with real orbital elements for all 8 planets.
+/// Constructs the initial PhysicsState with real orbital elements for all 8 planets and 5 moons.
 ///
-/// All angular elements are in radians; distances in AU; periods in days.
 /// Source: NASA planetary fact sheets / JPL Horizons epoch J2000.0.
-///
-/// Parameters: entities - Vec of 9 entity IDs in spawn order (Sun first, then 8 planets)
-///
-/// Returns: PhysicsState with populated body data
+/// Entities must be in spawn order: Sun, 8 planets, 5 moons.
 ///
 /// # Panics
-/// Panics if `entities.len() < 9` (requires 1 Sun + 8 planets). Callers should
-/// ensure the entity count matches before invoking.
+/// Logs a warning if `entities.len() < EXPECTED_BODY_COUNT`; missing entities use placeholder.
 pub fn init_solar_system(entities: Vec<Entity>) -> PhysicsState {
     if entities.len() < EXPECTED_BODY_COUNT {
         error!(
@@ -253,249 +233,28 @@ pub fn init_solar_system(entities: Vec<Entity>) -> PhysicsState {
         );
     }
 
-    // Index 0 — the Sun stays fixed at the origin (no orbit).
-    // Orbital elements: JPL Approximate Positions / Planetary Satellite Mean Elements, J2000.0.
-    // Radii: JPL Planetary Physical Parameters, IAU nominal solar radius.
-    let sun_entity = entities.first().copied().unwrap_or(Entity::PLACEHOLDER);
-    let mut bodies = vec![BodyState::new(sun_entity, "Sun", None).with_radius(695_700.0)];
+    let get_entity = |i: usize| entities.get(i).copied().unwrap_or(Entity::PLACEHOLDER);
 
-    let get_entity_at = |i: usize| entities.get(i).copied().unwrap_or(Entity::PLACEHOLDER);
+    let mut bodies = vec![BodyState::new(get_entity(0), "Sun", None).with_radius(695_700.0)];
 
-    const DEG: f64 = std::f64::consts::PI / 180.0;
+    for (i, data) in PLANET_DATA.iter().enumerate() {
+        bodies.push(
+            BodyState::new(get_entity(i + 1), data.name, Some(data.orbit))
+                .with_radius(data.radius_km),
+        );
+    }
 
-    bodies.push(
-        BodyState::new(
-            get_entity_at(1),
-            "Mercury",
-            Some(Orbit {
-                semi_major_axis_au: 0.38709927,
-                eccentricity: 0.20563593,
-                inclination_rad: 7.00497902 * DEG,
-                longitude_ascending_rad: 48.33076593 * DEG,
-                argument_of_periapsis_rad: 29.12703 * DEG,
-                mean_anomaly_at_epoch_rad: 174.79253 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 87.969,
-            }),
-        )
-        .with_radius(2_440.53),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(2),
-            "Venus",
-            Some(Orbit {
-                semi_major_axis_au: 0.72333566,
-                eccentricity: 0.00677672,
-                inclination_rad: 3.39467605 * DEG,
-                longitude_ascending_rad: 76.67984255 * DEG,
-                argument_of_periapsis_rad: 54.92262 * DEG,
-                mean_anomaly_at_epoch_rad: 50.37663 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 224.701,
-            }),
-        )
-        .with_radius(6_051.8),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(3),
-            "Earth",
-            Some(Orbit {
-                semi_major_axis_au: 1.00000261,
-                eccentricity: 0.01671123,
-                inclination_rad: -0.00001531 * DEG,
-                longitude_ascending_rad: 0.0,
-                argument_of_periapsis_rad: 102.93768 * DEG,
-                mean_anomaly_at_epoch_rad: 357.52689 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 365.256,
-            }),
-        )
-        .with_radius(6_378.14),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(4),
-            "Mars",
-            Some(Orbit {
-                semi_major_axis_au: 1.52371034,
-                eccentricity: 0.09339410,
-                inclination_rad: 1.84969142 * DEG,
-                longitude_ascending_rad: 49.55953891 * DEG,
-                argument_of_periapsis_rad: 286.49683 * DEG,
-                mean_anomaly_at_epoch_rad: 19.41248 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 686.980,
-            }),
-        )
-        .with_radius(3_396.19),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(5),
-            "Jupiter",
-            Some(Orbit {
-                semi_major_axis_au: 5.20288700,
-                eccentricity: 0.04838624,
-                inclination_rad: 1.30439695 * DEG,
-                longitude_ascending_rad: 100.47390909 * DEG,
-                argument_of_periapsis_rad: 274.25452 * DEG,
-                mean_anomaly_at_epoch_rad: 19.66796 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 4332.82,
-            }),
-        )
-        .with_radius(71_492.0),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(6),
-            "Saturn",
-            Some(Orbit {
-                semi_major_axis_au: 9.53667594,
-                eccentricity: 0.05386179,
-                inclination_rad: 2.48599187 * DEG,
-                longitude_ascending_rad: 113.66242448 * DEG,
-                argument_of_periapsis_rad: 338.93605 * DEG,
-                mean_anomaly_at_epoch_rad: 317.35537 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 10759.22,
-            }),
-        )
-        .with_radius(60_268.0),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(7),
-            "Uranus",
-            Some(Orbit {
-                semi_major_axis_au: 19.18916464,
-                eccentricity: 0.04725744,
-                inclination_rad: 0.77263783 * DEG,
-                longitude_ascending_rad: 74.01692503 * DEG,
-                argument_of_periapsis_rad: 96.93735 * DEG,
-                mean_anomaly_at_epoch_rad: 142.28383 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 30687.15,
-            }),
-        )
-        .with_radius(25_559.0),
-    );
-
-    bodies.push(
-        BodyState::new(
-            get_entity_at(8),
-            "Neptune",
-            Some(Orbit {
-                semi_major_axis_au: 30.06992276,
-                eccentricity: 0.00859048,
-                inclination_rad: 1.77004347 * DEG,
-                longitude_ascending_rad: 131.78422574 * DEG,
-                argument_of_periapsis_rad: 273.17949 * DEG,
-                mean_anomaly_at_epoch_rad: 259.91521 * DEG,
-                epoch_days: 0.0,
-                orbital_period_days: 60190.03,
-            }),
-        )
-        .with_radius(24_764.0),
-    );
-
-    // Major moons: geocentric (Moon) and jovicentric (Galilean moons)
-    // JPL Planetary Satellite Mean Elements, DE405/LE405 (Moon), JUP365 (Galilean).
-    let earth_entity = get_entity_at(3);
-    let jupiter_entity = get_entity_at(5);
-
-    bodies.push(BodyState::moon(
-        get_entity_at(9),
-        "Moon",
-        Orbit {
-            semi_major_axis_au: 384_400.0 / 149_597_870.7, // 0.0025696 AU
-            eccentricity: 0.0554,
-            inclination_rad: 5.16 * DEG,
-            longitude_ascending_rad: 125.08 * DEG,
-            argument_of_periapsis_rad: 318.15 * DEG,
-            mean_anomaly_at_epoch_rad: 135.27 * DEG,
-            epoch_days: 0.0,
-            orbital_period_days: 27.322,
-        },
-        earth_entity,
-        1_737.4,
-    ));
-
-    bodies.push(BodyState::moon(
-        get_entity_at(10),
-        "Io",
-        Orbit {
-            semi_major_axis_au: 421_800.0 / 149_597_870.7,
-            eccentricity: 0.004,
-            inclination_rad: 0.0,
-            longitude_ascending_rad: 0.0,
-            argument_of_periapsis_rad: 49.1 * DEG,
-            mean_anomaly_at_epoch_rad: 330.9 * DEG,
-            epoch_days: 0.0,
-            orbital_period_days: 1.769,
-        },
-        jupiter_entity,
-        1_821.49,
-    ));
-
-    bodies.push(BodyState::moon(
-        get_entity_at(11),
-        "Europa",
-        Orbit {
-            semi_major_axis_au: 671_100.0 / 149_597_870.7,
-            eccentricity: 0.009,
-            inclination_rad: 0.5 * DEG,
-            longitude_ascending_rad: 184.0 * DEG,
-            argument_of_periapsis_rad: 45.0 * DEG,
-            mean_anomaly_at_epoch_rad: 345.4 * DEG,
-            epoch_days: 0.0,
-            orbital_period_days: 3.525,
-        },
-        jupiter_entity,
-        1_560.80,
-    ));
-
-    bodies.push(BodyState::moon(
-        get_entity_at(12),
-        "Ganymede",
-        Orbit {
-            semi_major_axis_au: 1_070_400.0 / 149_597_870.7,
-            eccentricity: 0.001,
-            inclination_rad: 0.2 * DEG,
-            longitude_ascending_rad: 58.5 * DEG,
-            argument_of_periapsis_rad: 198.3 * DEG,
-            mean_anomaly_at_epoch_rad: 324.8 * DEG,
-            epoch_days: 0.0,
-            orbital_period_days: 7.156,
-        },
-        jupiter_entity,
-        2_631.20,
-    ));
-
-    bodies.push(BodyState::moon(
-        get_entity_at(13),
-        "Callisto",
-        Orbit {
-            semi_major_axis_au: 1_882_700.0 / 149_597_870.7,
-            eccentricity: 0.007,
-            inclination_rad: 0.3 * DEG,
-            longitude_ascending_rad: 309.1 * DEG,
-            argument_of_periapsis_rad: 43.8 * DEG,
-            mean_anomaly_at_epoch_rad: 87.4 * DEG,
-            epoch_days: 0.0,
-            orbital_period_days: 16.690,
-        },
-        jupiter_entity,
-        2_410.30,
-    ));
+    for (i, moon) in MOON_DATA.iter().enumerate() {
+        let entity_index = 9 + i;
+        let parent_entity = get_entity(moon.parent_index);
+        bodies.push(BodyState::moon(
+            get_entity(entity_index),
+            moon.name,
+            moon.to_orbit(),
+            parent_entity,
+            moon.radius_km,
+        ));
+    }
 
     let mut physics_state = PhysicsState::default();
     for body in bodies {

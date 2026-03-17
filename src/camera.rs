@@ -42,7 +42,7 @@ impl Default for CameraController {
 /// Now uses entity-based lookups instead of index-based AppState access.
 pub fn camera_follow_system(
     camera_controller: Res<CameraController>,
-    body_query: Query<&Transform, (With<super::render::BodyMesh>, Without<Camera3d>)>,
+    body_query: Query<&Transform, (With<crate::render::BodyMesh>, Without<Camera3d>)>,
     mut camera_query: Query<&mut Transform, With<Camera3d>>,
 ) {
     let Ok(mut camera_transform) = camera_query.single_mut() else {

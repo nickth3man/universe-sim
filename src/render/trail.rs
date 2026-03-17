@@ -2,12 +2,10 @@
 
 use crate::error::validate_positive_or;
 use crate::physics::system::PhysicsState;
+use crate::types::AU_TO_WORLD;
 use bevy::prelude::*;
 use tracing::info_span;
 use std::collections::HashMap;
-
-/// Scale from AU (physics) to world units (matches sync_physics_to_transforms).
-const AU_TO_WORLD: f32 = 10.0;
 
 /// Default trail length in simulation days when enabled.
 pub const DEFAULT_TRAIL_LENGTH_DAYS: f64 = 30.0;
